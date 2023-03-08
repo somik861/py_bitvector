@@ -11,6 +11,8 @@ DEFAULT_SIZE = 64
 @total_ordering
 class BitVector:
     def __init__(self, val: int | list[int | bool] = 0, size: int = DEFAULT_SIZE) -> None:
+        assert size > 0, 'BitVector of size 0 does not make sense :D'
+
         self.value = [False] * size
 
         if type(val) is int:
@@ -164,6 +166,30 @@ class ops:
     @_bin_bv_test
     def _noop(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
         pass
+
+    # ============ Extend operations
+    @staticmethod
+    def zext(arg: BitVector, new_size: int) -> BitVector:
+        assert new_size > len(arg), \
+            f'Cannot extend bv of size {len(arg)} to {new_size}'
+
+        return BitVector(arg.value, new_size)
+
+    @staticmethod
+    def sext(arg: BitVector, new_size: int) -> BitVector:
+        assert new_size > len(arg), \
+            f'Cannot extend bv of size {len(arg)} to {new_size}'
+
+        out = BitVector(arg.value, new_size)
+        out.value[0] = arg.value[0]
+        out[len(arg) - 1] = False
+        return out
+
+    @staticmethod
+    def trunc(arg: BitVector, new_size: int) -> BitVector:
+        assert new_size < len(arg), \
+            f'Cannot truncate bv of size {len(arg)} to {new_size}'
+        return BitVector.as_bitvector(new_size)
 
     # ============ Arithmetic operations
 
