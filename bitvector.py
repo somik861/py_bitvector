@@ -1,18 +1,25 @@
-from math import log2
+from __future__ import annotations
+
 from itertools import dropwhile
 from typing import Any, Callable
-from operator import and_, or_
+from operator import and_, or_, xor, neg
+from functools import total_ordering
 
 DEFAULT_SIZE = 64
 
 
+@total_ordering
 class BitVector:
     def __init__(self, val: int | list[int | bool] = 0, size: int = DEFAULT_SIZE) -> None:
         self.value = [False] * size
 
         if type(val) is int:
-            assert val >= 0 and (val == 0 or log2(
-                val) < size), f'Value {val} is too big for size {size}'
+            assert self.min_signed_value() <= val <= self.max_value(),\
+                f'Value {val} is too big (or too small) for size {size}; range: [{self.min_signed_value()}, {self.max_value()}]'
+
+            if val < 0:
+                val += 2 ** len(self)
+
             idx = -1
             while val > 0:
                 self.value[idx] = (val % 2 == 1)
@@ -28,6 +35,31 @@ class BitVector:
             return
 
         assert False, f'Invalid input type, valid: int | list[int | bool]; got {type(val)}'
+
+    def max_value(self) -> int:
+        return 2**len(self) - 1
+
+    def min_value(self) -> int:
+        return 0
+
+    def max_signed_value(self) -> int:
+        return 2 ** (len(self) - 1) - 1
+
+    def min_signed_value(self) -> int:
+        return 2 ** (len(self) - 1)
+
+    def as_bitvector(self, size: int) -> BitVector:
+        out = BitVector(size=size)
+        for i in range(min(size, len(self))):
+            out[i] = self[i]
+
+        return out
+
+    def as_signed_int(self) -> int:
+        if self.value[0] == 0:
+            return self.as_int()
+
+        return self.as_int() - 2 ** len(self)
 
     def as_int(self) -> int:
         out = 0
@@ -76,8 +108,29 @@ class BitVector:
         new_val = bool(new_val)
         self.value[-idx - 1] = new_val
 
+    def __eq__(self, __o: object) -> bool:
+        if type(__o) is not BitVector:
+            return False
+        return self.value == __o.value
 
-def _bv_test(f: Callable[[BitVector, BitVector, int], BitVector]) -> Any:
+    def __lt__(self, __o: object) -> bool:
+        if type(__o) is not BitVector:
+            return False
+
+        return len(self) == len(__o) and self.as_int() < __o.as_int()
+
+    def copy(self) -> BitVector:
+        cpy = BitVector(self.value)
+        return cpy
+
+    def inject_at_start(self, other: BitVector) -> None:
+        assert len(self) >= len(other),\
+            f'Cannot inject bv of size {len(other)} into bv {len(self)}'
+        for i in range(len(other)):
+            self[i] = other[i]
+
+
+def _bin_bv_test(f: Callable[[BitVector, BitVector, int], BitVector]) -> Any:
     def wrapper(lhs: BitVector, rhs: BitVector, size: int | None = None, *args, **kwargs) -> BitVector:
         if size is not None:
             assert len(lhs) == len(rhs) and size <= len(
@@ -92,14 +145,95 @@ def _bv_test(f: Callable[[BitVector, BitVector, int], BitVector]) -> Any:
     return wrapper
 
 
+def _un_bv_test(f: Callable[[BitVector, int], BitVector]) -> Any:
+    def wrapper(arg: BitVector, size: int | None = None, *args, **kwargs) -> BitVector:
+        if size is not None:
+            assert size <= len(arg),\
+                f'Missmatching sizes: {len(arg)=} has to be bigger than {size=}'
+
+        else:
+            size = len(arg)
+
+        return f(arg, size, *args, **kwargs)
+
+    return wrapper
+
+
 class ops:
     @staticmethod
-    @_bv_test
+    @_bin_bv_test
     def _noop(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
         pass
 
+    # ============ Arithmetic operations
+
     @staticmethod
-    @_bv_test
+    @_bin_bv_test
+    def add(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        op_res = BitVector(lhs.as_bitvector(size).as_int() +
+                           rhs.as_bitvector(size).as_int(), size=max(len(lhs), len(rhs) + 1)).as_bitvector(size)
+        res = lhs.copy()
+        res.inject_at_start(op_res)
+        return res
+
+    @staticmethod
+    @_bin_bv_test
+    def sub(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        op_res = BitVector(lhs.as_bitvector(size).as_int() -
+                           rhs.as_bitvector(size).as_int(), size=max(len(lhs), len(rhs) + 1)).as_bitvector(size)
+        res = lhs.copy()
+        res.inject_at_start(op_res)
+        return res
+
+    @staticmethod
+    @_bin_bv_test
+    def mul(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        op_res = BitVector(lhs.as_bitvector(size).as_int() *
+                           rhs.as_bitvector(size).as_int(), size=len(lhs) + len(rhs) + 1).as_bitvector(size)
+        res = lhs.copy()
+        res.inject_at_start(op_res)
+        return res
+
+    @staticmethod
+    @_bin_bv_test
+    def sdiv(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        op_res = BitVector(lhs.as_bitvector(size).as_signed_int() //
+                           rhs.as_bitvector(size).as_signed_int(), size=len(lhs)).as_bitvector(size)
+        res = lhs.copy()
+        res.inject_at_start(op_res)
+        return res
+
+    @staticmethod
+    @_bin_bv_test
+    def udiv(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        op_res = BitVector(lhs.as_bitvector(size).as_int() //
+                           rhs.as_bitvector(size).as_int(), size=len(lhs)).as_bitvector(size)
+        res = lhs.copy()
+        res.inject_at_start(op_res)
+        return res
+
+    @staticmethod
+    @_bin_bv_test
+    def srem(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        op_res = BitVector(lhs.as_bitvector(size).as_signed_int() %
+                           rhs.as_bitvector(size).as_signed_int(), size=len(lhs)).as_bitvector(size)
+        res = lhs.copy()
+        res.inject_at_start(op_res)
+        return res
+
+    @staticmethod
+    @_bin_bv_test
+    def urem(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        op_res = BitVector(lhs.as_bitvector(size).as_int() %
+                           rhs.as_bitvector(size).as_int(), size=len(lhs)).as_bitvector(size)
+        res = lhs.copy()
+        res.inject_at_start(op_res)
+        return res
+
+    # ============ Bit operations
+
+    @staticmethod
+    @_bin_bv_test
     def elem_wise(lhs: BitVector, rhs: BitVector, size: int, f: Callable[[bool, bool], bool], ) -> BitVector:
         out = BitVector(size=len(lhs))
         for i in range(size):
@@ -107,24 +241,114 @@ class ops:
         return out
 
     @staticmethod
-    @_bv_test
-    def eq(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+    @_un_bv_test
+    def unary_op(arg: BitVector, size: int, f: Callable[[bool], bool]) -> BitVector:
+        assert size <= len(
+            arg), f'Size {size} is too big for bv of size {len(arg)}'
+
+        out = BitVector(len(arg))
         for i in range(size):
-            if lhs[i] != rhs[i]:
-                return False
-        return True
+            out[i] = f(arg[i])
+
+        return out
 
     @staticmethod
-    @_bv_test
-    def neq(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
-        return not ops.eq(lhs, rhs, size)
-
-    @staticmethod
-    @_bv_test
+    @_bin_bv_test
     def bit_and(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
         return ops.elem_wise(lhs, rhs, size, and_)
 
     @staticmethod
-    @_bv_test
+    @_bin_bv_test
     def bit_or(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
         return ops.elem_wise(lhs, rhs, size, or_)
+
+    @staticmethod
+    @_bin_bv_test
+    def bit_xor(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        return ops.elem_wise(lhs, rhs, size, xor)
+
+    @staticmethod
+    @_un_bv_test
+    def bit_neg(arg: BitVector, size: int) -> BitVector:
+        return ops.unary_op(arg, size, neg)
+
+    @staticmethod
+    @_un_bv_test
+    def shl(arg: BitVector, size: int) -> BitVector:
+        arg = arg.copy()
+        for i in reversed(range(1, size)):
+            arg[i] = arg[i - 1]
+
+        arg[0] = False
+        return arg
+
+    @staticmethod
+    @_un_bv_test
+    def lshr(arg: BitVector, size: int) -> BitVector:
+        arg = arg.copy()
+        for i in range(size - 1):
+            arg[i] = arg[i + 1]
+
+        arg[size - 1] = False
+        return arg
+
+    @staticmethod
+    @_un_bv_test
+    def ashr(arg: BitVector, size: int) -> BitVector:
+        arg = arg.copy()
+        for i in range(size - 1):
+            arg[i] = arg[i + 1]
+
+        return arg
+
+    # ============ Relation operations
+
+    @staticmethod
+    @_bin_bv_test
+    def eq(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        return lhs.as_bitvector(size) == rhs.as_bitvector(size)
+
+    @staticmethod
+    @_bin_bv_test
+    def neq(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        return not ops.eq(lhs, rhs, size)
+
+    @staticmethod
+    @_bin_bv_test
+    def ult(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        return lhs.as_bitvector(size) < rhs.as_bitvector(size)
+
+    @staticmethod
+    @_bin_bv_test
+    def ule(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        return ops.ult(lhs, rhs, size) or ops.eq(lhs, rhs, size)
+
+    @staticmethod
+    @_bin_bv_test
+    def ugt(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        return not ops.ule(lhs, rhs, size)
+
+    @staticmethod
+    @_bin_bv_test
+    def uge(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        return not ops.ult(lhs, rhs, size)
+
+    @staticmethod
+    @_bin_bv_test
+    def slt(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        return lhs.as_bitvector(size).as_signed_int() < rhs.as_bitvector(size).as_signed_int()
+
+    @staticmethod
+    @_bin_bv_test
+    def sle(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        return ops.slt(lhs, rhs, size) or ops.eq(lhs, rhs, size)
+
+    @staticmethod
+    @_bin_bv_test
+    def sgt(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        return not ops.sle(lhs, rhs, size)
+
+    @staticmethod
+    @_bin_bv_test
+    def sge(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+        return not ops.slt(lhs, rhs, size)
