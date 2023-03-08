@@ -3,7 +3,7 @@ from __future__ import annotations
 from itertools import dropwhile
 from typing import Any, Callable
 from operator import and_, or_, xor, neg
-from functools import total_ordering
+from functools import total_ordering, wraps
 
 DEFAULT_SIZE = 64
 
@@ -48,7 +48,7 @@ class BitVector:
         return 2 ** (len(self) - 1) - 1
 
     def min_signed_value(self) -> int:
-        return 2 ** (len(self) - 1)
+        return -2 ** (len(self) - 1)
 
     def as_bitvector(self, size: int) -> BitVector:
         out = BitVector(size=size)
@@ -132,8 +132,10 @@ class BitVector:
             self[i] = other[i]
 
 
-def _bin_bv_test(f: Callable[[BitVector, BitVector, int], BitVector]) -> Any:
+def _bin_bv_test(f: Callable[[BitVector, BitVector, int], BitVector]) -> Callable[[BitVector, BitVector, int], Any]:
+    @wraps(f)
     def wrapper(lhs: BitVector, rhs: BitVector, size: int | None = None, *args, **kwargs) -> BitVector:
+
         if size is not None:
             assert len(lhs) == len(rhs) and size <= len(
                 lhs), f'Missmatching sizes: {len(lhs)=} {len(rhs)=} has to be bigger than {size=}'
@@ -147,7 +149,8 @@ def _bin_bv_test(f: Callable[[BitVector, BitVector, int], BitVector]) -> Any:
     return wrapper
 
 
-def _un_bv_test(f: Callable[[BitVector, int], BitVector]) -> Any:
+def _un_bv_test(f: Callable[[BitVector, int], BitVector]) -> Callable[[BitVector, int], Any]:
+    @wraps(f)
     def wrapper(arg: BitVector, size: int | None = None, *args, **kwargs) -> BitVector:
         if size is not None:
             assert size <= len(arg),\
@@ -331,50 +334,54 @@ class ops:
 
     @staticmethod
     @_bin_bv_test
-    def eq(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+    def eq(lhs: BitVector, rhs: BitVector, size: int) -> bool:
         return lhs.as_bitvector(size) == rhs.as_bitvector(size)
 
     @staticmethod
     @_bin_bv_test
-    def neq(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+    def neq(lhs: BitVector, rhs: BitVector, size: int) -> bool:
         return not ops.eq(lhs, rhs, size)
 
     @staticmethod
     @_bin_bv_test
-    def ult(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+    def ult(lhs: BitVector, rhs: BitVector, size: int) -> bool:
         return lhs.as_bitvector(size) < rhs.as_bitvector(size)
 
     @staticmethod
     @_bin_bv_test
-    def ule(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+    def ule(lhs: BitVector, rhs: BitVector, size: int) -> bool:
         return ops.ult(lhs, rhs, size) or ops.eq(lhs, rhs, size)
 
     @staticmethod
     @_bin_bv_test
-    def ugt(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+    def ugt(lhs: BitVector, rhs: BitVector, size: int) -> bool:
         return not ops.ule(lhs, rhs, size)
 
     @staticmethod
     @_bin_bv_test
-    def uge(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+    def uge(lhs: BitVector, rhs: BitVector, size: int) -> bool:
         return not ops.ult(lhs, rhs, size)
 
     @staticmethod
     @_bin_bv_test
-    def slt(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+    def slt(lhs: BitVector, rhs: BitVector, size: int) -> bool:
         return lhs.as_bitvector(size).as_signed_int() < rhs.as_bitvector(size).as_signed_int()
 
     @staticmethod
     @_bin_bv_test
-    def sle(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+    def sle(lhs: BitVector, rhs: BitVector, size: int) -> bool:
         return ops.slt(lhs, rhs, size) or ops.eq(lhs, rhs, size)
 
     @staticmethod
     @_bin_bv_test
-    def sgt(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+    def sgt(lhs: BitVector, rhs: BitVector, size: int) -> bool:
         return not ops.sle(lhs, rhs, size)
 
     @staticmethod
     @_bin_bv_test
-    def sge(lhs: BitVector, rhs: BitVector, size: int) -> BitVector:
+    def sge(lhs: BitVector, rhs: BitVector, size: int) -> bool:
         return not ops.slt(lhs, rhs, size)
+
+
+ALL_OPS = [ops.add, ops.sub, ops.mul, ops.sdiv, ops.udiv, ops.srem, ops.urem, ops.bit_and, ops.bit_or, ops.bit_xor, ops.eq,
+           ops.neq, ops.ult, ops.ule, ops.ugt, ops.uge, ops.slt, ops.sle, ops.sgt, ops.sge]  # TODO
