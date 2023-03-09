@@ -90,7 +90,7 @@ class BitVector:
         return ''.join(['0b'] + out)
 
     def __str__(self) -> str:
-        return f'[{len(self)}] {self.as_int()}~{self.as_bits()}'
+        return f'[{len(self)}] {self.as_signed_int()}~{self.as_bits()}'
 
     def __repr__(self) -> str:
         return f'BitVector({self.as_int()}, size={len(self.value)})'
@@ -122,7 +122,7 @@ class BitVector:
         return len(self) == len(__o) and self.as_int() < __o.as_int()
 
     def copy(self) -> BitVector:
-        cpy = BitVector(self.value)
+        cpy = BitVector(self.value, len(self))
         return cpy
 
     def inject_at_start(self, other: BitVector) -> None:
@@ -184,15 +184,18 @@ class ops:
             f'Cannot extend bv of size {len(arg)} to {new_size}'
 
         out = BitVector(arg.value, new_size)
-        out.value[0] = arg.value[0]
-        out[len(arg) - 1] = False
+        sign = arg.value[0]
+
+        for i in range(new_size - len(arg)):
+            out.value[i] = sign
+
         return out
 
     @staticmethod
     def trunc(arg: BitVector, new_size: int) -> BitVector:
         assert new_size < len(arg), \
             f'Cannot truncate bv of size {len(arg)} to {new_size}'
-        return BitVector.as_bitvector(new_size)
+        return arg.as_bitvector(new_size)
 
     # ============ Arithmetic operations
 
@@ -383,5 +386,5 @@ class ops:
         return not ops.slt(lhs, rhs, size)
 
 
-ALL_OPS = [ops.add, ops.sub, ops.mul, ops.sdiv, ops.udiv, ops.srem, ops.urem, ops.bit_and, ops.bit_or, ops.bit_xor, ops.eq,
-           ops.neq, ops.ult, ops.ule, ops.ugt, ops.uge, ops.slt, ops.sle, ops.sgt, ops.sge]  # TODO
+BINARY_OPS = [ops.add, ops.sub, ops.mul, ops.sdiv, ops.udiv, ops.srem, ops.urem, ops.bit_and, ops.bit_or, ops.bit_xor, ops.eq,
+              ops.neq, ops.ult, ops.ule, ops.ugt, ops.uge, ops.slt, ops.sle, ops.sgt, ops.sge]
