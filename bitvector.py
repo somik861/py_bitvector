@@ -278,7 +278,7 @@ class ops:
         assert size <= len(
             arg), f'Size {size} is too big for bv of size {len(arg)}'
 
-        out = BitVector(len(arg))
+        out = BitVector(size=len(arg))
         for i in range(size):
             out[i] = f(arg[i])
 
